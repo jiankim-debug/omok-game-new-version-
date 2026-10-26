@@ -1,0 +1,12 @@
+{
+  "name": "omok-game-render",
+  "version": "1.0.0",
+  "description": "render deployable gomoku web game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
