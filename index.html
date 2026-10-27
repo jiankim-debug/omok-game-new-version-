@@ -5,50 +5,78 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="오목 웹 게임 - 반응형 브라우저 게임"
+      content="오목 웹 게임 - 1:1 대전 및 AI 대전"
     />
     <title>오목 게임</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <main class="app">
-      <header class="topbar">
-        <div class="brand-block">
-          <p class="eyebrow">온라인 오목</p>
-          <h1>오목 게임</h1>
-        </div>
+      <section id="mode-selection" class="panel mode-panel">
+        <p class="eyebrow">게임 선택</p>
+        <h2>어떤 대전 방식을 선택할까요?</h2>
 
-        <div class="header-actions">
-          <button id="undo-btn" class="btn secondary" type="button">
-            마지막 수 취소
+        <div class="mode-options">
+          <button class="mode-btn friend" type="button" data-mode="friend">
+            <span class="mode-icon">👥</span>
+            <span>
+              <strong>친구와 1:1 하기</strong>
+              <small>같은 컴퓨터에서 친구와 대결</small>
+            </span>
           </button>
-          <button id="new-game-btn" class="btn primary" type="button">
-            새 게임
+
+          <button class="mode-btn ai" type="button" data-mode="ai">
+            <span class="mode-icon">🤖</span>
+            <span>
+              <strong>인공지능과 플레이하기</strong>
+              <small>AI 상대와 실전처럼 겨뤄보세요</small>
+            </span>
           </button>
         </div>
-      </header>
+      </section>
 
-      <section class="panel">
-        <div class="info-row">
-          <div class="info-box turn-box">
-            <span class="label">현재 차례</span>
-            <span id="turn-indicator" class="turn-indicator black">검은돌</span>
+      <section id="game-shell" class="game-shell hidden">
+        <header class="topbar">
+          <div class="brand-block">
+            <p class="eyebrow">온라인 오목</p>
+            <h1 id="game-title">오목 게임</h1>
           </div>
 
-          <div class="info-box status-box">
-            <span class="label">상태</span>
-            <span id="status-text">게임 시작</span>
+          <div class="header-actions">
+            <button id="mode-select-btn" class="btn secondary" type="button">
+              모드 선택
+            </button>
+            <button id="undo-btn" class="btn secondary" type="button">
+              마지막 수 취소
+            </button>
+            <button id="new-game-btn" class="btn primary" type="button">
+              새 게임
+            </button>
+          </div>
+        </header>
+
+        <section class="panel">
+          <div class="info-row">
+            <div class="info-box turn-box">
+              <span class="label">현재 차례</span>
+              <span id="turn-indicator" class="turn-indicator black">검은돌</span>
+            </div>
+
+            <div class="info-box status-box">
+              <span class="label">상태</span>
+              <span id="status-text">게임 시작</span>
+            </div>
+
+            <div class="info-box moves-box">
+              <span class="label">수</span>
+              <span id="move-count">0</span>
+            </div>
           </div>
 
-          <div class="info-box moves-box">
-            <span class="label">수</span>
-            <span id="move-count">0</span>
+          <div class="board-wrapper">
+            <div id="board" class="board" aria-label="오목판"></div>
           </div>
-        </div>
-
-        <div class="board-wrapper">
-          <div id="board" class="board" aria-label="오목판"></div>
-        </div>
+        </section>
       </section>
     </main>
 
