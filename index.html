@@ -17,7 +17,7 @@
         <h2>어떤 대전 방식을 선택할까요?</h2>
 
         <div class="mode-options">
-          <button class="mode-btn friend" type="button" data-mode="friend">
+          <button class="mode-btn" type="button" data-mode="friend">
             <span class="mode-icon">👥</span>
             <span>
               <strong>친구와 1:1 하기</strong>
@@ -25,13 +25,28 @@
             </span>
           </button>
 
-          <button class="mode-btn ai" type="button" data-mode="ai">
+          <button class="mode-btn" type="button" data-mode="ai">
             <span class="mode-icon">🤖</span>
             <span>
               <strong>인공지능과 플레이하기</strong>
               <small>AI 상대와 실전처럼 겨뤄보세요</small>
             </span>
           </button>
+        </div>
+
+        <div class="difficulty-panel">
+          <p class="eyebrow">난이도 선택</p>
+          <div class="difficulty-options">
+            <button class="difficulty-btn active" data-difficulty="easy" type="button">
+              쉬움
+            </button>
+            <button class="difficulty-btn" data-difficulty="normal" type="button">
+              보통
+            </button>
+            <button class="difficulty-btn" data-difficulty="hard" type="button">
+              어려움
+            </button>
+          </div>
         </div>
       </section>
 
@@ -70,6 +85,21 @@
             <div class="info-box moves-box">
               <span class="label">수</span>
               <span id="move-count">0</span>
+            </div>
+          </div>
+
+          <div class="score-row">
+            <div class="score-box">
+              <span class="label">검은돌</span>
+              <span id="black-score">0</span>
+            </div>
+            <div class="score-box">
+              <span class="label">흰돌</span>
+              <span id="white-score">0</span>
+            </div>
+            <div class="score-box">
+              <span class="label">무승부</span>
+              <span id="draw-score">0</span>
             </div>
           </div>
 
