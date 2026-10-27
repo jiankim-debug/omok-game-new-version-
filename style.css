@@ -191,6 +191,35 @@ h2 {
   background: rgba(44, 93, 78, 0.1);
 }
 
+.difficulty-panel {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(60, 47, 32, 0.08);
+}
+
+.difficulty-options {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.difficulty-btn {
+  border: 1px solid rgba(60, 47, 32, 0.08);
+  background: rgba(255, 255, 255, 0.34);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: var(--text);
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.difficulty-btn.active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 8px 18px rgba(44, 93, 78, 0.18);
+}
+
 .info-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -231,6 +260,34 @@ h2 {
 
 .turn-indicator.white {
   color: #4b4b4b;
+}
+
+.score-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.score-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 74px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(68, 58, 45, 0.06);
+}
+
+.score-box .label {
+  font-size: 0.66rem;
+}
+
+.score-box span:last-child {
+  font-size: 1.1rem;
+  font-weight: 800;
 }
 
 .board-wrapper {
@@ -334,7 +391,8 @@ h2 {
     flex: 1;
   }
 
-  .info-row {
+  .info-row,
+  .score-row {
     grid-template-columns: 1fr;
   }
 
