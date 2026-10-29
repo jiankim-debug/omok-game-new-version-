@@ -11,6 +11,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-app.listen(port, () => {
+app.get('*', (req, res) => {
+  res.sendFile(path.join(staticDir, 'index.html'));
+});
+
+app.listen(port, '0.0.0.0', () => {
   console.log(`오목 게임이 포트 ${port}에서 실행 중입니다.`);
 });
