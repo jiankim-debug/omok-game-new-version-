@@ -26,6 +26,10 @@ const state = {
     white: 0,
     draw: 0,
   },
+  patternMemory: {
+    black: [],
+    white: [],
+  },
 };
 
 const boardElement = document.getElementById('board');
@@ -62,6 +66,10 @@ function createSnapshot() {
     lastMove: state.lastMove ? { ...state.lastMove } : null,
     mode: state.mode,
     difficulty: state.difficulty,
+    patternMemory: {
+      black: [...state.patternMemory.black],
+      white: [...state.patternMemory.white],
+    },
   };
 }
 
@@ -282,6 +290,89 @@ function evaluateBoard(board, perspective) {
   return score;
 }
 
+function getPatternSummary(board, row, col, player) {
+  const directions = [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [1, -1],
+  ];
+
+  const summary = {
+    three: 0,
+    four: 0,
+    openThree: 0,
+    openFour: 0,
+    five: 0,
+  };
+
+  for (const [dr, dc] of directions) {
+    const line = [];
+
+    for (let offset = -4; offset <= 4; offset += 1) {
+      const nextRow = row + dr * offset;
+      const nextCol = col + dc * offset;
+      if (nextRow < 0 || nextRow >= BOARD_SIZE || nextCol < 0 || nextCol >= BOARD_SIZE) {
+        line.push(EMPTY);
+        continue;
+      }
+      line.push(board[nextRow][nextCol]);
+    }
+
+    for (let start = 0; start <= line.length - 5; start += 1) {
+      const segment = line.slice(start, start + 5);
+      const playerCount = segment.filter((value) => value === player).length;
+      const emptyCount = segment.filter((value) => value === EMPTY).length;
+
+      if (playerCount === 5) {
+        summary.five += 1;
+        continue;
+      }
+
+      if (playerCount === 4 && emptyCount === 1) {
+        const left = start - 1 >= 0 ? line[start - 1] : EMPTY;
+        const right = start + 5 < line.length ? line[start + 5] : EMPTY;
+        if (left === EMPTY && right === EMPTY) {
+          summary.openFour += 1;
+        } else {
+          summary.four += 1;
+        }
+        continue;
+      }
+
+      if (playerCount === 3 && emptyCount === 2) {
+        const left = start - 1 >= 0 ? line[start - 1] : EMPTY;
+        const right = start + 5 < line.length ? line[start + 5] : EMPTY;
+        if (left === EMPTY && right === EMPTY) {
+          summary.openThree += 1;
+        } else {
+          summary.three += 1;
+        }
+      }
+    }
+  }
+
+  return summary;
+}
+
+function getMoveUrgency(board, row, col, player) {
+  const nextBoard = cloneBoard(board);
+  nextBoard[row][col] = player;
+
+  if (hasFiveInLine(row, col, player, nextBoard)) {
+    return WIN_SCORE;
+  }
+
+  const summary = getPatternSummary(nextBoard, row, col, player);
+  let score = 0;
+  score += summary.openFour * 120000;
+  score += summary.four * 70000;
+  score += summary.openThree * 15000;
+  score += summary.three * 7000;
+  score += getLearningBias(row, col, player);
+  return score;
+}
+
 function getDifficultyDelay() {
   const map = {
     easy: 300,
@@ -385,6 +476,51 @@ function findWinner(board = state.board) {
   return null;
 }
 
+function recordMoveMemory(player, row, col) {
+  const key = player === BLACK ? 'black' : 'white';
+  state.patternMemory[key].push({ row, col });
+
+  if (state.patternMemory[key].length > 12) {
+    state.patternMemory[key].shift();
+  }
+}
+
+function getLearningBias(row, col, player) {
+  const key = player === BLACK ? 'white' : 'black';
+  const memory = state.patternMemory[key];
+  if (memory.length === 0) return 0;
+
+  let score = 0;
+  for (const move of memory) {
+    const distance = Math.abs(move.row - row) + Math.abs(move.col - col);
+    if (distance <= 2) {
+      score += 200 - distance * 45;
+    }
+  }
+
+  return score;
+}
+
+function findMajorThreatMove(player, board = state.board) {
+  const availableMoves = getAvailableMoves(board);
+  let bestMove = null;
+  let bestScore = -Infinity;
+
+  for (const move of availableMoves) {
+    const score = getMoveUrgency(board, move.row, move.col, player);
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+
+  if (bestMove && bestScore >= 15000) {
+    return bestMove;
+  }
+
+  return null;
+}
+
 function getBestAIMove() {
   const availableMoves = getAvailableMoves();
   if (availableMoves.length === 0) return null;
@@ -400,6 +536,9 @@ function getBestAIMove() {
   const blockMove = findImmediateWinMove(BLACK);
   if (blockMove) return blockMove;
 
+  const strongestThreat = findMajorThreatMove(BLACK);
+  if (strongestThreat) return strongestThreat;
+
   const orderedMoves = orderMoves(availableMoves, state.board).slice(0, 12);
 
   for (const move of orderedMoves) {
@@ -411,7 +550,8 @@ function getBestAIMove() {
       return move;
     }
 
-    const score = minimax(nextBoard, currentDepth - 1, -Infinity, Infinity, false, BLACK);
+    const patternWeight = getMoveUrgency(state.board, move.row, move.col, WHITE);
+    const score = minimax(nextBoard, currentDepth - 1, -Infinity, Infinity, false, BLACK) + patternWeight;
 
     if (score > bestScore) {
       bestScore = score;
@@ -436,6 +576,7 @@ function makeAIMove() {
   state.board[bestMove.row][bestMove.col] = WHITE;
   state.lastMove = { row: bestMove.row, col: bestMove.col };
   state.moves.push({ row: bestMove.row, col: bestMove.col, player: WHITE });
+  recordMoveMemory(WHITE, bestMove.row, bestMove.col);
 
   if (hasFiveInLine(bestMove.row, bestMove.col, WHITE)) {
     state.winner = WHITE;
@@ -465,6 +606,7 @@ function handleMove(row, col) {
   state.board[row][col] = state.currentPlayer;
   state.lastMove = { row, col };
   state.moves.push({ row, col, player: state.currentPlayer });
+  recordMoveMemory(state.currentPlayer, row, col);
 
   if (hasFiveInLine(row, col, state.currentPlayer)) {
     state.winner = state.currentPlayer;
@@ -515,6 +657,10 @@ function resetGame() {
   state.lastMove = null;
   state.history = [];
   state.aiThinking = false;
+  state.patternMemory = {
+    black: [],
+    white: [],
+  };
   render();
 }
 
@@ -529,6 +675,7 @@ function undoMove() {
   state.moves = previous.moves;
   state.lastMove = previous.lastMove;
   state.aiThinking = false;
+  state.patternMemory = previous.patternMemory;
 
   render();
 }
