@@ -303,6 +303,8 @@ function getPatternSummary(board, row, col, player) {
     four: 0,
     openThree: 0,
     openFour: 0,
+    brokenThree: 0,
+    brokenFour: 0,
     five: 0,
   };
 
@@ -334,8 +336,10 @@ function getPatternSummary(board, row, col, player) {
         const right = start + 5 < line.length ? line[start + 5] : EMPTY;
         if (left === EMPTY && right === EMPTY) {
           summary.openFour += 1;
-        } else {
+        } else if (left === EMPTY || right === EMPTY) {
           summary.four += 1;
+        } else {
+          summary.brokenFour += 1;
         }
         continue;
       }
@@ -345,8 +349,10 @@ function getPatternSummary(board, row, col, player) {
         const right = start + 5 < line.length ? line[start + 5] : EMPTY;
         if (left === EMPTY && right === EMPTY) {
           summary.openThree += 1;
-        } else {
+        } else if (left === EMPTY || right === EMPTY) {
           summary.three += 1;
+        } else {
+          summary.brokenThree += 1;
         }
       }
     }
@@ -369,6 +375,8 @@ function getMoveUrgency(board, row, col, player) {
   score += summary.four * 70000;
   score += summary.openThree * 15000;
   score += summary.three * 7000;
+  score += summary.brokenFour * 90000;
+  score += summary.brokenThree * 12000;
   score += getLearningBias(row, col, player);
 
   const neighboringThreats = [
@@ -576,7 +584,9 @@ function findOpenThreeCreateMove(player, board = state.board) {
       summary.openFour * 300000 +
       summary.four * 200000 +
       summary.openThree * 120000 +
-      summary.three * 50000;
+      summary.three * 50000 +
+      summary.brokenFour * 160000 +
+      summary.brokenThree * 80000;
 
     if (score > bestScore) {
       bestScore = score;
@@ -609,7 +619,9 @@ function findImmediateThreatMove(player, board = state.board) {
       summary.openFour * 200000 +
       summary.four * 90000 +
       summary.openThree * 20000 +
-      summary.three * 8000;
+      summary.three * 8000 +
+      summary.brokenFour * 150000 +
+      summary.brokenThree * 12000;
 
     if (score > bestScore) {
       bestScore = score;
