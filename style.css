@@ -303,7 +303,12 @@ h2 {
   grid-template-columns: repeat(15, minmax(0, 1fr));
   width: min(78vw, 620px);
   aspect-ratio: 1;
-  background: var(--board-wood);
+  background:
+    linear-gradient(var(--board-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--board-line) 1px, transparent 1px),
+    var(--board-wood);
+  background-size: calc(100% / 15) calc(100% / 15), calc(100% / 15) calc(100% / 15), 100% 100%;
+  background-position: center center, center center, 0 0;
   border: 10px solid var(--board-wood-deep);
   border-radius: 18px;
   box-shadow: inset 0 0 0 2px rgba(98, 72, 43, 0.18), 0 18px 28px rgba(82, 58, 26, 0.14);
@@ -323,8 +328,7 @@ h2 {
   display: flex;
   justify-content: center;
   align-items: center;
-  border-right: 1px solid var(--board-line);
-  border-bottom: 1px solid var(--board-line);
+  border: none;
   background: transparent;
   cursor: pointer;
   padding: 0;
@@ -332,7 +336,7 @@ h2 {
 }
 
 .board-cell:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .board-cell:last-child {
@@ -345,8 +349,8 @@ h2 {
 
 .stone {
   position: relative;
-  width: 74%;
-  height: 74%;
+  width: 72%;
+  height: 72%;
   border-radius: 50%;
   box-shadow: inset 0 2px 2px rgba(255, 255, 255, 0.22), inset 0 -8px 12px rgba(0, 0, 0, 0.2);
 }
