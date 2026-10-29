@@ -10,6 +10,41 @@
     [1, -1],
   ];
 
+  const state = {
+    board: createEmptyBoard(),
+    currentPlayer: BLACK,
+    winner: null,
+    status: '게임 시작',
+    moves: [],
+    lastMove: null,
+    history: [],
+    mode: 'friend',
+    difficulty: 'hard',
+    ruleMode: 'free',
+    aiThinking: false,
+    scores: { black: 0, white: 0, draw: 0 },
+    patternMemory: { black: [], white: [] },
+  };
+
+  const boardElement = document.getElementById('board');
+  const turnIndicator = document.getElementById('turn-indicator');
+  const statusText = document.getElementById('status-text');
+  const moveCount = document.getElementById('move-count');
+  const newGameButton = document.getElementById('new-game-btn');
+  const undoButton = document.getElementById('undo-btn');
+  const modeSelection = document.getElementById('mode-selection');
+  const gameShell = document.getElementById('game-shell');
+  const modeSelectButton = document.getElementById('mode-select-btn');
+  const gameTitle = document.getElementById('game-title');
+  const blackScoreEl = document.getElementById('black-score');
+  const whiteScoreEl = document.getElementById('white-score');
+  const drawScoreEl = document.getElementById('draw-score');
+  const difficultyButtons = document.querySelectorAll('.difficulty-btn');
+  const modeButtons = document.querySelectorAll('.mode-btn');
+  const ruleButtons = document.querySelectorAll('.rule-btn');
+
+  let aiTimerId = null;
+
   function createEmptyBoard() {
     return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
   }
@@ -22,7 +57,7 @@
     return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
   }
 
-  function getAvailableMoves(board) {
+  function getAvailableMoves(board = state.board) {
     const moves = [];
     for (let row = 0; row < BOARD_SIZE; row += 1) {
       for (let col = 0; col < BOARD_SIZE; col += 1) {
@@ -34,7 +69,7 @@
     return moves;
   }
 
-  function getCandidateMoves(board) {
+  function getCandidateMoves(board = state.board) {
     const occupied = [];
     for (let row = 0; row < BOARD_SIZE; row += 1) {
       for (let col = 0; col < BOARD_SIZE; col += 1) {
@@ -56,7 +91,10 @@
         for (let colOffset = -2; colOffset <= 2; colOffset += 1) {
           const nextRow = row + rowOffset;
           const nextCol = col + colOffset;
-          if (!isInside(nextRow, nextCol) || board[nextRow][nextCol] !== EMPTY) {
+          if (!isInside(nextRow, nextCol)) {
+            continue;
+          }
+          if (board[nextRow][nextCol] !== EMPTY) {
             continue;
           }
           const key = `${nextRow}:${nextCol}`;
@@ -71,22 +109,22 @@
     return candidates.length > 0 ? candidates : getAvailableMoves(board);
   }
 
-  function countAligned(board, row, col, player, deltaRow, deltaCol) {
+  function countDirection(board, row, col, player, deltaRow, deltaCol) {
     let count = 0;
-    let r = row + deltaRow;
-    let c = col + deltaCol;
-    while (isInside(r, c) && board[r][c] === player) {
+    let currentRow = row + deltaRow;
+    let currentCol = col + deltaCol;
+    while (isInside(currentRow, currentCol) && board[currentRow][currentCol] === player) {
       count += 1;
-      r += deltaRow;
-      c += deltaCol;
+      currentRow += deltaRow;
+      currentCol += deltaCol;
     }
     return count;
   }
 
   function hasFiveInLine(board, row, col, player) {
     return DIRECTIONS.some(([deltaRow, deltaCol]) => {
-      const forward = countAligned(board, row, col, player, deltaRow, deltaCol);
-      const backward = countAligned(board, row, col, player, -deltaRow, -deltaCol);
+      const forward = countDirection(board, row, col, player, deltaRow, deltaCol);
+      const backward = countDirection(board, row, col, player, -deltaRow, -deltaCol);
       return forward + backward + 1 >= 5;
     });
   }
@@ -114,8 +152,15 @@
     return values;
   }
 
-  function summarizePatterns(board, row, col, player) {
-    const summary = { openTwo: 0, closedThree: 0, openThree: 0, closedFour: 0, openFour: 0, five: 0 };
+  function getPatternSummary(board, row, col, player) {
+    const summary = {
+      openTwo: 0,
+      closedThree: 0,
+      openThree: 0,
+      closedFour: 0,
+      openFour: 0,
+      five: 0,
+    };
 
     DIRECTIONS.forEach(([deltaRow, deltaCol]) => {
       const line = getLineValues(board, row, col, deltaRow, deltaCol, 9);
@@ -164,7 +209,24 @@
     return summary;
   }
 
-  function evaluateMoveScore(board, row, col, player) {
+  function findImmediateWinMove(board, player) {
+    const candidates = getCandidateMoves(board).filter((move) => {
+      const nextBoard = cloneBoard(board);
+      nextBoard[move.row][move.col] = player;
+      return hasFiveInLine(nextBoard, move.row, move.col, player);
+    });
+    return candidates[0] || null;
+  }
+
+  function findDefenseMove(board, player, opponent) {
+    const opponentWin = findImmediateWinMove(board, opponent);
+    if (!opponentWin) {
+      return null;
+    }
+    return opponentWin;
+  }
+
+  function evaluateMove(board, row, col, player) {
     const nextBoard = cloneBoard(board);
     nextBoard[row][col] = player;
 
@@ -172,28 +234,28 @@
       return 1_000_000;
     }
 
-    const summary = summarizePatterns(nextBoard, row, col, player);
+    const summary = getPatternSummary(nextBoard, row, col, player);
     const opponent = player === BLACK ? WHITE : BLACK;
-    const opponentSummary = summarizePatterns(nextBoard, row, col, opponent);
+    const oppSummary = getPatternSummary(nextBoard, row, col, opponent);
 
     let score = 0;
     score += summary.openFour * 220_000;
-    score += summary.closedFour * 35_000;
+    score += summary.closedFour * 40_000;
     score += summary.openThree * 12_000;
-    score += summary.closedThree * 4_500;
+    score += summary.closedThree * 3_500;
     score += summary.openTwo * 600;
 
-    score -= opponentSummary.openFour * 180_000;
-    score -= opponentSummary.closedFour * 30_000;
-    score -= opponentSummary.openThree * 9_000;
+    score -= oppSummary.openFour * 180_000;
+    score -= oppSummary.closedFour * 35_000;
+    score -= oppSummary.openThree * 10_000;
 
     const centerDistance = Math.abs(row - 7) + Math.abs(col - 7);
-    score += Math.max(0, 18 - centerDistance) * 35;
+    score += Math.max(0, 18 - centerDistance) * 25;
 
     return score;
   }
 
-  function isMoveLegal(board, row, col, player, ruleMode = 'free') {
+  function isLegalMove(board, row, col, player, ruleMode = 'free') {
     if (!isInside(row, col)) {
       return false;
     }
@@ -204,28 +266,22 @@
     if (ruleMode === 'renju' && player === BLACK) {
       const nextBoard = cloneBoard(board);
       nextBoard[row][col] = player;
-      if (hasFiveInLine(nextBoard, row, col, player)) {
-        return true;
-      }
-
-      const summary = summarizePatterns(nextBoard, row, col, player);
-      const fourCount = summary.openFour + summary.closedFour;
-      const threeCount = summary.openThree + summary.closedThree;
+      const summary = getPatternSummary(nextBoard, row, col, player);
       const overLine = DIRECTIONS.some(([deltaRow, deltaCol]) => {
         let total = 1;
-        let r = row + deltaRow;
-        let c = col + deltaCol;
-        while (isInside(r, c) && nextBoard[r][c] === player) {
+        let currentRow = row + deltaRow;
+        let currentCol = col + deltaCol;
+        while (isInside(currentRow, currentCol) && nextBoard[currentRow][currentCol] === player) {
           total += 1;
-          r += deltaRow;
-          c += deltaCol;
+          currentRow += deltaRow;
+          currentCol += deltaCol;
         }
-        r = row - deltaRow;
-        c = col - deltaCol;
-        while (isInside(r, c) && nextBoard[r][c] === player) {
+        currentRow = row - deltaRow;
+        currentCol = col - deltaCol;
+        while (isInside(currentRow, currentCol) && nextBoard[currentRow][currentCol] === player) {
           total += 1;
-          r -= deltaRow;
-          c -= deltaCol;
+          currentRow -= deltaRow;
+          currentCol -= deltaCol;
         }
         return total >= 6;
       });
@@ -233,6 +289,9 @@
       if (overLine) {
         return false;
       }
+
+      const threeCount = summary.openThree + summary.closedThree;
+      const fourCount = summary.openFour + summary.closedFour;
 
       if (threeCount >= 2 || fourCount >= 2) {
         return false;
@@ -242,185 +301,47 @@
     return true;
   }
 
-  function findImmediateWinMove(board, player, ruleMode = 'free') {
-    const legalMoves = getCandidateMoves(board).filter((move) => isMoveLegal(board, move.row, move.col, player, ruleMode));
-
-    for (const move of legalMoves) {
-      const nextBoard = cloneBoard(board);
-      nextBoard[move.row][move.col] = player;
-      if (hasFiveInLine(nextBoard, move.row, move.col, player)) {
-        return move;
-      }
-    }
-
-    return null;
-  }
-
-  function evaluateBoardScore(board, player) {
-    let score = 0;
-
-    for (let row = 0; row < BOARD_SIZE; row += 1) {
-      for (let col = 0; col < BOARD_SIZE; col += 1) {
-        const value = board[row][col];
-        if (value === EMPTY) {
-          continue;
-        }
-
-        const centerDistance = Math.abs(row - 7) + Math.abs(col - 7);
-        const centerBias = Math.max(0, 20 - centerDistance);
-        score += value === player ? centerBias * 10 : -centerBias * 10;
-
-        const summary = summarizePatterns(board, row, col, value);
-        if (value === player) {
-          score += summary.openFour * 35_000;
-          score += summary.closedFour * 12_000;
-          score += summary.openThree * 3_200;
-          score += summary.closedThree * 1_100;
-          score += summary.openTwo * 180;
-        } else {
-          score -= summary.openFour * 40_000;
-          score -= summary.closedFour * 14_000;
-          score -= summary.openThree * 3_800;
-          score -= summary.closedThree * 1_300;
-          score -= summary.openTwo * 220;
-        }
-      }
-    }
-
-    return score;
-  }
-
-  function orderMoves(board, player, ruleMode, limit = 8) {
-    const legalMoves = getCandidateMoves(board)
-      .filter((move) => isMoveLegal(board, move.row, move.col, player, ruleMode))
-      .map((move) => ({
-        ...move,
-        score: evaluateMoveScore(board, move.row, move.col, player),
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
-
-    return legalMoves;
-  }
-
-  function minimax(board, player, opponent, depth, alpha, beta, maximizingPlayer) {
-    const winner = findWinner(board);
-    if (winner === player) {
-      return 10_000_000 + depth;
-    }
-    if (winner === opponent) {
-      return -10_000_000 + depth;
-    }
-    if (depth === 0 || getAvailableMoves(board).length === 0) {
-      return evaluateBoardScore(board, player) - evaluateBoardScore(board, opponent) * 0.8;
-    }
-
-    const moves = orderMoves(board, maximizingPlayer, 'free', 8);
-    if (moves.length === 0) {
-      return evaluateBoardScore(board, player) - evaluateBoardScore(board, opponent) * 0.8;
-    }
-
-    let bestScore = maximizingPlayer === player ? -Infinity : Infinity;
-
-    for (const move of moves) {
-      const nextBoard = cloneBoard(board);
-      nextBoard[move.row][move.col] = maximizingPlayer;
-      const score = minimax(nextBoard, player, opponent, depth - 1, alpha, beta, maximizingPlayer === player ? opponent : player);
-
-      if (maximizingPlayer === player) {
-        bestScore = Math.max(bestScore, score);
-        alpha = Math.max(alpha, bestScore);
-      } else {
-        bestScore = Math.min(bestScore, score);
-        beta = Math.min(beta, bestScore);
-      }
-
-      if (beta <= alpha) {
-        break;
-      }
-    }
-
-    return bestScore;
-  }
-
   function getBestAIMove(board, player, difficulty = 'hard', ruleMode = 'free') {
-    const legalMoves = getCandidateMoves(board).filter((move) => isMoveLegal(board, move.row, move.col, player, ruleMode));
+    const opponent = player === BLACK ? WHITE : BLACK;
+    const legalMoves = getCandidateMoves(board).filter((move) => isLegalMove(board, move.row, move.col, player, ruleMode));
     if (legalMoves.length === 0) {
       return null;
     }
 
-    const immediateWin = findImmediateWinMove(board, player, ruleMode);
-    if (immediateWin) {
-      return immediateWin;
+    const ownWin = findImmediateWinMove(board, player);
+    if (ownWin) {
+      return ownWin;
     }
 
-    const opponent = player === BLACK ? WHITE : BLACK;
-    const enemyWin = findImmediateWinMove(board, opponent, ruleMode);
-    if (enemyWin && isMoveLegal(board, enemyWin.row, enemyWin.col, player, ruleMode)) {
-      return enemyWin;
-    }
-
-    const ordered = orderMoves(board, player, ruleMode, 10);
-    const depthMap = { easy: 1, normal: 2, hard: 2 };
-    const depth = depthMap[difficulty] ?? 2;
-
-    let bestMove = ordered[0]?.move ?? legalMoves[0];
-    let bestScore = -Infinity;
-
-    for (const candidate of ordered) {
-      const nextBoard = cloneBoard(board);
-      nextBoard[candidate.row][candidate.col] = player;
-      const replyScore = minimax(nextBoard, player, opponent, depth - 1, -Infinity, Infinity, opponent);
-      const localScore = evaluateMoveScore(board, candidate.row, candidate.col, player) - replyScore * 0.35;
-
-      if (localScore > bestScore) {
-        bestScore = localScore;
-        bestMove = { row: candidate.row, col: candidate.col };
+    const opponentWin = findImmediateWinMove(board, opponent);
+    if (opponentWin) {
+      const counter = legalMoves.find((move) => move.row === opponentWin.row && move.col === opponentWin.col);
+      if (counter) {
+        return counter;
       }
     }
 
-    return bestMove;
+    const defenseCandidates = legalMoves.filter((move) => {
+      const nextBoard = cloneBoard(board);
+      nextBoard[move.row][move.col] = player;
+      return !findImmediateWinMove(nextBoard, opponent);
+    });
+
+    const candidates = (defenseCandidates.length > 0 ? defenseCandidates : legalMoves)
+      .map((move) => ({
+        ...move,
+        score: evaluateMove(board, move.row, move.col, player),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    const moveBias = difficulty === 'easy' ? 0.3 : difficulty === 'normal' ? 0.6 : 1;
+    const chosen = candidates[Math.min(candidates.length - 1, Math.max(0, Math.floor(candidates.length * moveBias)))];
+    return { row: chosen.row, col: chosen.col };
   }
-
-  const PLAYER_NAMES = {
-    [BLACK]: '검은돌',
-    [WHITE]: '흰돌',
-  };
-
-  const state = {
-    board: createEmptyBoard(),
-    currentPlayer: BLACK,
-    winner: null,
-    status: '게임 시작',
-    moves: [],
-    lastMove: null,
-    history: [],
-    mode: 'friend',
-    difficulty: 'hard',
-    ruleMode: 'free',
-    aiThinking: false,
-    scores: { black: 0, white: 0, draw: 0 },
-    patternMemory: { black: [], white: [] },
-  };
-
-  const boardElement = document.getElementById('board');
-  const turnIndicator = document.getElementById('turn-indicator');
-  const statusText = document.getElementById('status-text');
-  const moveCount = document.getElementById('move-count');
-  const newGameButton = document.getElementById('new-game-btn');
-  const undoButton = document.getElementById('undo-btn');
-  const modeSelection = document.getElementById('mode-selection');
-  const gameShell = document.getElementById('game-shell');
-  const modeSelectButton = document.getElementById('mode-select-btn');
-  const gameTitle = document.getElementById('game-title');
-  const blackScoreEl = document.getElementById('black-score');
-  const whiteScoreEl = document.getElementById('white-score');
-  const drawScoreEl = document.getElementById('draw-score');
-  const difficultyButtons = document.querySelectorAll('.difficulty-btn');
-  const modeButtons = document.querySelectorAll('.mode-btn');
-  const ruleButtons = document.querySelectorAll('.rule-btn');
-
-  let aiTimerId = null;
 
   function recordMoveMemory(player, row, col) {
     const key = player === BLACK ? 'black' : 'white';
@@ -432,10 +353,12 @@
 
   function renderBoard() {
     const cells = boardElement.children;
+
     for (let row = 0; row < BOARD_SIZE; row += 1) {
       for (let col = 0; col < BOARD_SIZE; col += 1) {
         const cell = cells[row * BOARD_SIZE + col];
         const value = state.board[row][col];
+
         cell.classList.remove('last-move');
         cell.innerHTML = '';
 
@@ -462,9 +385,9 @@
     moveCount.textContent = String(state.moves.length);
 
     if (state.winner) {
-      turnIndicator.textContent = `${PLAYER_NAMES[state.winner]} 승리`;
+      turnIndicator.textContent = `${state.winner === BLACK ? '검은돌' : '흰돌'} 승리`;
       turnIndicator.className = `turn-indicator ${state.winner === BLACK ? 'black' : 'white'}`;
-      statusText.textContent = `${PLAYER_NAMES[state.winner]}이(가) 승리했습니다!`;
+      statusText.textContent = `${state.winner === BLACK ? '검은돌' : '흰돌'}이(가) 승리했습니다!`;
       return;
     }
 
@@ -482,9 +405,10 @@
       return;
     }
 
-    turnIndicator.textContent = PLAYER_NAMES[state.currentPlayer];
+    const currentName = state.currentPlayer === BLACK ? '검은돌' : '흰돌';
+    turnIndicator.textContent = currentName;
     turnIndicator.className = `turn-indicator ${state.currentPlayer === BLACK ? 'black' : 'white'}`;
-    statusText.textContent = `${PLAYER_NAMES[state.currentPlayer]} 차례`;
+    statusText.textContent = `${currentName} 차례`;
   }
 
   function render() {
@@ -509,6 +433,31 @@
     }
   }
 
+  function makeSnapshot() {
+    return {
+      board: cloneBoard(state.board),
+      currentPlayer: state.currentPlayer,
+      winner: state.winner,
+      status: state.status,
+      moves: [...state.moves],
+      lastMove: state.lastMove ? { ...state.lastMove } : null,
+      mode: state.mode,
+      difficulty: state.difficulty,
+      ruleMode: state.ruleMode,
+      patternMemory: {
+        black: [...state.patternMemory.black],
+        white: [...state.patternMemory.white],
+      },
+    };
+  }
+
+  function clearAiTimer() {
+    if (aiTimerId) {
+      clearTimeout(aiTimerId);
+      aiTimerId = null;
+    }
+  }
+
   function resetGame() {
     clearAiTimer();
     state.board = createEmptyBoard();
@@ -523,18 +472,8 @@
     render();
   }
 
-  function clearAiTimer() {
-    if (aiTimerId) {
-      clearTimeout(aiTimerId);
-      aiTimerId = null;
-    }
-  }
-
   function isMoveAllowed(row, col, player = state.currentPlayer) {
-    if (!window.OmokLogic || typeof window.OmokLogic.isMoveLegal !== 'function') {
-      return false;
-    }
-    return window.OmokLogic.isMoveLegal(state.board, row, col, player, state.ruleMode);
+    return isLegalMove(state.board, row, col, player, state.ruleMode);
   }
 
   function makeAIMove() {
@@ -549,22 +488,7 @@
       return;
     }
 
-    state.history.push({
-      board: cloneBoard(state.board),
-      currentPlayer: state.currentPlayer,
-      winner: state.winner,
-      status: state.status,
-      moves: [...state.moves],
-      lastMove: state.lastMove ? { ...state.lastMove } : null,
-      mode: state.mode,
-      difficulty: state.difficulty,
-      ruleMode: state.ruleMode,
-      patternMemory: {
-        black: [...state.patternMemory.black],
-        white: [...state.patternMemory.white],
-      },
-    });
-
+    state.history.push(makeSnapshot());
     state.board[move.row][move.col] = WHITE;
     state.lastMove = { row: move.row, col: move.col };
     state.moves.push({ row: move.row, col: move.col, player: WHITE });
@@ -577,7 +501,7 @@
       state.status = '무승부';
     } else {
       state.currentPlayer = BLACK;
-      state.status = `${PLAYER_NAMES[state.currentPlayer]} 차례`;
+      state.status = `${state.currentPlayer === BLACK ? '검은돌' : '흰돌'} 차례`;
     }
 
     state.aiThinking = false;
@@ -608,22 +532,7 @@
       return;
     }
 
-    state.history.push({
-      board: cloneBoard(state.board),
-      currentPlayer: state.currentPlayer,
-      winner: state.winner,
-      status: state.status,
-      moves: [...state.moves],
-      lastMove: state.lastMove ? { ...state.lastMove } : null,
-      mode: state.mode,
-      difficulty: state.difficulty,
-      ruleMode: state.ruleMode,
-      patternMemory: {
-        black: [...state.patternMemory.black],
-        white: [...state.patternMemory.white],
-      },
-    });
-
+    state.history.push(makeSnapshot());
     state.board[row][col] = state.currentPlayer;
     state.lastMove = { row, col };
     state.moves.push({ row, col, player: state.currentPlayer });
@@ -631,12 +540,12 @@
 
     if (hasFiveInLine(state.board, row, col, state.currentPlayer)) {
       state.winner = state.currentPlayer;
-      state.status = `${PLAYER_NAMES[state.currentPlayer]} 승리`;
+      state.status = `${state.currentPlayer === BLACK ? '검은돌' : '흰돌'} 승리`;
     } else if (state.moves.length === BOARD_SIZE * BOARD_SIZE) {
       state.status = '무승부';
     } else {
       state.currentPlayer = state.currentPlayer === BLACK ? WHITE : BLACK;
-      state.status = `${PLAYER_NAMES[state.currentPlayer]} 차례`;
+      state.status = `${state.currentPlayer === BLACK ? '검은돌' : '흰돌'} 차례`;
     }
 
     render();
@@ -644,9 +553,12 @@
     if (state.mode === 'ai' && state.currentPlayer === WHITE && !state.winner) {
       state.aiThinking = true;
       clearAiTimer();
-      aiTimerId = setTimeout(() => {
-        makeAIMove();
-      }, state.difficulty === 'easy' ? 350 : state.difficulty === 'normal' ? 550 : 900);
+      const delayMap = {
+        easy: 350,
+        normal: 550,
+        hard: 800,
+      };
+      aiTimerId = setTimeout(() => makeAIMove(), delayMap[state.difficulty] || 550);
     }
   }
 
@@ -725,30 +637,24 @@
   }
 
   function runSelfTests() {
-    const board = createEmptyBoard();
-
-    // immediate 5 in a row
-    for (let col = 0; col < 5; col += 1) {
-      board[7][7 + col] = BLACK;
+    const testBoard = createEmptyBoard();
+    for (let i = 0; i < 5; i += 1) {
+      testBoard[7][7 + i] = BLACK;
     }
-    if (!hasFiveInLine(board, 7, 9, BLACK)) {
+    if (!hasFiveInLine(testBoard, 7, 7, BLACK)) {
       throw new Error('5-line detection failed');
     }
 
-    const board2 = createEmptyBoard();
-    board2[7][7] = BLACK;
-    board2[7][8] = BLACK;
-    board2[7][9] = BLACK;
-    board2[7][10] = BLACK;
-    if (!isMoveLegal(board2, 7, 11, BLACK, 'free')) {
+    const testBoard2 = createEmptyBoard();
+    testBoard2[7][7] = BLACK;
+    testBoard2[7][8] = BLACK;
+    testBoard2[7][9] = BLACK;
+    testBoard2[7][10] = BLACK;
+    if (!isLegalMove(testBoard2, 7, 11, BLACK, 'free')) {
       throw new Error('legal move detection failed');
     }
 
-    const board3 = createEmptyBoard();
-    for (let i = 0; i < 4; i += 1) {
-      board3[7][7 + i] = BLACK;
-    }
-    const winMove = findImmediateWinMove(board3, BLACK, 'free');
+    const winMove = findImmediateWinMove(testBoard2, BLACK);
     if (!winMove || winMove.row !== 7 || winMove.col !== 11) {
       throw new Error('immediate win detection failed');
     }
