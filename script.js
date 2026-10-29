@@ -291,6 +291,10 @@ function getDifficultyDelay() {
   return map[state.difficulty] || 500;
 }
 
+function getCenterDistance(row, col) {
+  return Math.abs(row - 7) + Math.abs(col - 7);
+}
+
 function orderMoves(moves, board) {
   const sorted = moves.map((move) => {
     const nextBoard = cloneBoard(board);
@@ -299,7 +303,13 @@ function orderMoves(moves, board) {
     return { ...move, score };
   });
 
-  return sorted.sort((a, b) => b.score - a.score);
+  return sorted.sort((a, b) => {
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
+
+    return getCenterDistance(a.row, a.col) - getCenterDistance(b.row, b.col);
+  });
 }
 
 function minimax(board, depth, alpha, beta, maximizing, currentPlayer) {
@@ -409,7 +419,11 @@ function getBestAIMove() {
     }
   }
 
-  return bestMove || orderedMoves[0];
+  if (bestMove) {
+    return bestMove;
+  }
+
+  return orderedMoves[0];
 }
 
 function makeAIMove() {
