@@ -562,6 +562,39 @@ function findBestOffenseMove(player, board = state.board) {
   return null;
 }
 
+function findImmediateThreatMove(player, board = state.board) {
+  const availableMoves = getAvailableMoves(board);
+  let bestMove = null;
+  let bestScore = -Infinity;
+
+  for (const move of availableMoves) {
+    const nextBoard = cloneBoard(board);
+    nextBoard[move.row][move.col] = player;
+
+    if (hasFiveInLine(move.row, move.col, player, nextBoard)) {
+      return move;
+    }
+
+    const summary = getPatternSummary(nextBoard, move.row, move.col, player);
+    const score =
+      summary.openFour * 200000 +
+      summary.four * 90000 +
+      summary.openThree * 20000 +
+      summary.three * 8000;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+
+  if (bestMove && bestScore >= 15000) {
+    return bestMove;
+  }
+
+  return null;
+}
+
 function getBestAIMove() {
   const availableMoves = getAvailableMoves();
   if (availableMoves.length === 0) return null;
@@ -576,6 +609,9 @@ function getBestAIMove() {
 
   const blockMove = findImmediateWinMove(BLACK);
   if (blockMove) return blockMove;
+
+  const dangerousThreat = findImmediateThreatMove(BLACK);
+  if (dangerousThreat) return dangerousThreat;
 
   const strongOffense = findBestOffenseMove(WHITE);
   if (strongOffense) return strongOffense;
