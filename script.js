@@ -1,4 +1,3 @@
-(function () {
 const BOARD_SIZE = 15;
 const EMPTY = 0;
 const BLACK = 1;
@@ -233,17 +232,11 @@ function minimax(board, depth, alpha, beta, maximizing, currentPlayer) {
   return bestScore;
 }
 
-function orderMoves(moves, board) {
-  return moves
-    .map((move) => ({ ...move, score: evaluateBoard(cloneBoard(board).map((row) => [...row])), row: move.row, col: move.col }))
-    .sort((a, b) => b.score - a.score);
-}
-
 function getDifficultyDelay() {
   const map = {
     easy: 350,
     normal: 550,
-    hard: 700,
+    hard: 900,
   };
   return map[state.difficulty] || 550;
 }
@@ -257,6 +250,9 @@ function recordMoveMemory(player, row, col) {
 }
 
 function isMoveAllowed(row, col, player = state.currentPlayer) {
+  if (!window.OmokLogic || typeof window.OmokLogic.isMoveLegal !== 'function') {
+    return false;
+  }
   return window.OmokLogic.isMoveLegal(state.board, row, col, player, state.ruleMode);
 }
 
@@ -267,6 +263,15 @@ function findImmediateWinMove(player, board = state.board) {
 function findBestAIMove() {
   const best = window.OmokLogic.getBestAIMove(state.board, WHITE, state.difficulty, state.ruleMode);
   return best;
+}
+
+let aiTimerId = null;
+
+function clearAiTimer() {
+  if (aiTimerId) {
+    clearTimeout(aiTimerId);
+    aiTimerId = null;
+  }
 }
 
 function makeAIMove() {
@@ -292,6 +297,7 @@ function makeAIMove() {
   }
 
   state.aiThinking = false;
+  clearAiTimer();
   render();
 }
 
@@ -328,7 +334,8 @@ function handleMove(row, col) {
 
   if (state.mode === 'ai' && state.currentPlayer === WHITE && !state.winner) {
     state.aiThinking = true;
-    setTimeout(() => {
+    clearAiTimer();
+    aiTimerId = setTimeout(() => {
       makeAIMove();
     }, getDifficultyDelay());
   }
@@ -355,6 +362,7 @@ function updateRoundResult(winner) {
 }
 
 function resetGame() {
+  clearAiTimer();
   state.board = createEmptyBoard();
   state.currentPlayer = BLACK;
   state.winner = null;
@@ -371,6 +379,7 @@ function resetGame() {
 }
 
 function undoMove() {
+  clearAiTimer();
   if (state.history.length === 0) return;
 
   const previous = state.history.pop();
@@ -388,6 +397,7 @@ function undoMove() {
 }
 
 function showModeSelection() {
+  clearAiTimer();
   modeSelection.classList.remove('hidden');
   gameShell.classList.add('hidden');
   state.mode = 'friend';
@@ -395,6 +405,7 @@ function showModeSelection() {
 }
 
 function selectMode(mode) {
+  clearAiTimer();
   state.mode = mode;
   modeSelection.classList.add('hidden');
   gameShell.classList.remove('hidden');
@@ -455,4 +466,3 @@ function init() {
 }
 
 init();
-})();
