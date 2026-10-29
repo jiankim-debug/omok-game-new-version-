@@ -32,6 +32,8 @@ const state = {
   },
 };
 
+let aiTimerId = null;
+
 const boardElement = document.getElementById('board');
 const turnIndicator = document.getElementById('turn-indicator');
 const statusText = document.getElementById('status-text');
@@ -71,6 +73,23 @@ function createSnapshot() {
       white: [...state.patternMemory.white],
     },
   };
+}
+
+function clearAiTimer() {
+  if (aiTimerId) {
+    clearTimeout(aiTimerId);
+    aiTimerId = null;
+  }
+}
+
+function isValidMove(row, col, board = state.board) {
+  return (
+    row >= 0 &&
+    row < BOARD_SIZE &&
+    col >= 0 &&
+    col < BOARD_SIZE &&
+    board[row][col] === EMPTY
+  );
 }
 
 function buildBoard() {
@@ -202,130 +221,19 @@ function getAvailableMoves(board = state.board) {
   return moves;
 }
 
-function getCandidateMoves(board = state.board) {
-  const occupied = [];
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      if (board[row][col] !== EMPTY) {
-        occupied.push({ row, col });
-      }
-    }
-  }
-
-  const candidateSet = new Map();
-  for (const stone of occupied) {
-    for (let dr = -2; dr <= 2; dr += 1) {
-      for (let dc = -2; dc <= 2; dc += 1) {
-        const row = stone.row + dr;
-        const col = stone.col + dc;
-        if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) continue;
-        if (board[row][col] !== EMPTY) continue;
-        const key = `${row},${col}`;
-        if (!candidateSet.has(key)) {
-          const centerDistance = Math.abs(row - 7) + Math.abs(col - 7);
-          candidateSet.set(key, { row, col, centerDistance });
-        }
-      }
-    }
-  }
-
-  const fallback = [];
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      if (board[row][col] === EMPTY) {
-        fallback.push({ row, col });
-      }
-    }
-  }
-
-  const allMoves = [...candidateSet.values()];
-  return allMoves.length ? allMoves : fallback;
-}
-
-function findImmediateWinningMoves(player, board = state.board) {
+function findImmediateWinMove(player, board = state.board) {
   const availableMoves = getAvailableMoves(board);
-  const wins = [];
 
   for (const move of availableMoves) {
     const nextBoard = cloneBoard(board);
     nextBoard[move.row][move.col] = player;
 
     if (hasFiveInLine(move.row, move.col, player, nextBoard)) {
-      wins.push(move);
+      return move;
     }
   }
 
-  return wins;
-}
-
-function findBestBlockingMove(playerToBlock, board = state.board) {
-  const winningMoves = findImmediateWinningMoves(playerToBlock, board);
-  if (winningMoves.length === 0) return null;
-
-  if (winningMoves.length === 1) return winningMoves[0];
-
-  const candidateSet = new Set();
-  for (const move of winningMoves) {
-    candidateSet.add(`${move.row},${move.col}`);
-  }
-
-  const allMoves = getAvailableMoves(board);
-  let bestMove = null;
-  let bestScore = -Infinity;
-
-  for (const move of allMoves) {
-    const key = `${move.row},${move.col}`;
-    if (!candidateSet.has(key)) continue;
-
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = BLACK;
-    const score = evaluateBoard(nextBoard, WHITE) - evaluateBoard(board, WHITE);
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-
-  return bestMove;
-}
-
-function findMoveThatBlocksAllThreats(board = state.board) {
-  const enemyWins = findImmediateWinningMoves(BLACK, board);
-  if (enemyWins.length === 0) return null;
-
-  const defenseCandidates = new Set();
-  for (const move of enemyWins) {
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = BLACK;
-    if (hasFiveInLine(move.row, move.col, BLACK, nextBoard)) {
-      const cells = getAvailableMoves(board).filter((cell) => {
-        const testBoard = cloneBoard(board);
-        testBoard[cell.row][cell.col] = WHITE;
-        return hasFiveInLine(cell.row, cell.col, WHITE, testBoard);
-      });
-
-      for (const cell of cells) {
-        defenseCandidates.add(`${cell.row},${cell.col}`);
-      }
-    }
-  }
-
-  let bestMove = null;
-  let bestValue = -Infinity;
-  for (const cell of getAvailableMoves(board)) {
-    const key = `${cell.row},${cell.col}`;
-    if (!defenseCandidates.has(key)) continue;
-
-    const nextBoard = cloneBoard(board);
-    nextBoard[cell.row][cell.col] = WHITE;
-    const value = evaluateBoard(nextBoard, WHITE) - evaluateBoard(board, WHITE);
-    if (value > bestValue) {
-      bestValue = value;
-      bestMove = cell;
-    }
-  }
-
-  return bestMove;
+  return null;
 }
 
 function evaluateLinePattern(board, row, col, dr, dc, player) {
@@ -352,6 +260,7 @@ function evaluateLinePattern(board, row, col, dr, dc, player) {
 
 function getPatternScore(board, row, col, player) {
   const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+
   let score = 0;
 
   for (const [dr, dc] of directions) {
@@ -394,14 +303,10 @@ function getPatternSummary(board, row, col, player) {
   const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
 
   const summary = {
-    two: 0,
-    openTwo: 0,
     three: 0,
     four: 0,
     openThree: 0,
     openFour: 0,
-    brokenThree: 0,
-    brokenFour: 0,
     five: 0,
   };
 
@@ -444,29 +349,8 @@ function getPatternSummary(board, row, col, player) {
         const right = start + 5 < line.length ? line[start + 5] : EMPTY;
         if (left === EMPTY && right === EMPTY) {
           summary.openThree += 1;
-        } else if (left === EMPTY || right === EMPTY) {
+        } else {
           summary.three += 1;
-        } else {
-          summary.brokenThree += 1;
-        }
-        continue;
-      }
-
-      if (playerCount === 2 && emptyCount === 3) {
-        const left = start - 1 >= 0 ? line[start - 1] : EMPTY;
-        const right = start + 5 < line.length ? line[start + 5] : EMPTY;
-        if (left === EMPTY && right === EMPTY) {
-          summary.openTwo += 1;
-        } else {
-          summary.two += 1;
-        }
-      }
-
-      if (playerCount === 4 && emptyCount === 2) {
-        const left = start - 1 >= 0 ? line[start - 1] : EMPTY;
-        const right = start + 5 < line.length ? line[start + 5] : EMPTY;
-        if (left === EMPTY || right === EMPTY) {
-          summary.brokenFour += 1;
         }
       }
     }
@@ -489,10 +373,6 @@ function getMoveUrgency(board, row, col, player) {
   score += summary.four * 70000;
   score += summary.openThree * 15000;
   score += summary.three * 7000;
-  score += summary.brokenFour * 90000;
-  score += summary.brokenThree * 12000;
-  score += summary.openTwo * 2400;
-  score += summary.two * 950;
   score += getLearningBias(row, col, player);
 
   const neighboringThreats = [[1, 0], [0, 1], [1, 1], [1, -1]].reduce((total, [dr, dc]) => {
@@ -526,14 +406,14 @@ function getCenterDistance(row, col) {
 }
 
 function orderMoves(moves, board) {
-  const scored = moves.map((move) => {
+  const sorted = moves.map((move) => {
     const nextBoard = cloneBoard(board);
     nextBoard[move.row][move.col] = WHITE;
     const score = getPatternScore(nextBoard, move.row, move.col, WHITE);
     return { ...move, score };
   });
 
-  return scored.sort((a, b) => {
+  return sorted.sort((a, b) => {
     if (b.score !== a.score) {
       return b.score - a.score;
     }
@@ -550,7 +430,7 @@ function minimax(board, depth, alpha, beta, maximizing, currentPlayer) {
     return evaluateBoard(board, WHITE);
   }
 
-  const moves = orderMoves(getCandidateMoves(board), board).slice(0, 12);
+  const moves = orderMoves(getAvailableMoves(board), board).slice(0, 12);
 
   if (maximizing) {
     let bestScore = -Infinity;
@@ -590,13 +470,19 @@ function findWinner(board = state.board) {
         let r = row + dr;
         let c = col + dc;
 
-        while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === value) {
+        while (
+          r >= 0 && r < BOARD_SIZE &&
+          c >= 0 && c < BOARD_SIZE &&
+          board[r][c] === value
+        ) {
           count += 1;
           r += dr;
           c += dc;
         }
 
-        if (count >= 5) return value;
+        if (count >= 5) {
+          return value;
+        }
       }
     }
   }
@@ -656,6 +542,7 @@ function findBestOffenseMove(player, board = state.board) {
 
   for (const move of availableMoves) {
     const score = getMoveUrgency(board, move.row, move.col, player);
+
     if (score > bestScore) {
       bestScore = score;
       bestMove = move;
@@ -670,7 +557,7 @@ function findBestOffenseMove(player, board = state.board) {
 }
 
 function findOpenThreeCreateMove(player, board = state.board) {
-  const availableMoves = getCandidateMoves(board);
+  const availableMoves = getAvailableMoves(board);
   let bestMove = null;
   let bestScore = -Infinity;
 
@@ -683,10 +570,7 @@ function findOpenThreeCreateMove(player, board = state.board) {
       summary.openFour * 300000 +
       summary.four * 200000 +
       summary.openThree * 120000 +
-      summary.three * 50000 +
-      summary.brokenFour * 160000 +
-      summary.brokenThree * 80000 +
-      summary.openTwo * 6000;
+      summary.three * 50000;
 
     if (score > bestScore) {
       bestScore = score;
@@ -702,7 +586,7 @@ function findOpenThreeCreateMove(player, board = state.board) {
 }
 
 function findImmediateThreatMove(player, board = state.board) {
-  const availableMoves = getCandidateMoves(board);
+  const availableMoves = getAvailableMoves(board);
   let bestMove = null;
   let bestScore = -Infinity;
 
@@ -719,10 +603,7 @@ function findImmediateThreatMove(player, board = state.board) {
       summary.openFour * 200000 +
       summary.four * 90000 +
       summary.openThree * 20000 +
-      summary.three * 8000 +
-      summary.brokenFour * 150000 +
-      summary.brokenThree * 12000 +
-      summary.openTwo * 4000;
+      summary.three * 8000;
 
     if (score > bestScore) {
       bestScore = score;
@@ -737,59 +618,17 @@ function findImmediateThreatMove(player, board = state.board) {
   return null;
 }
 
-function findBestMoveForDefense(board = state.board) {
-  const enemyWins = findImmediateWinningMoves(BLACK, board);
-  if (enemyWins.length === 0) return null;
-
-  const blockers = new Set();
-  for (const move of enemyWins) {
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = BLACK;
-    if (hasFiveInLine(move.row, move.col, BLACK, nextBoard)) {
-      for (const candidate of getAvailableMoves(board)) {
-        const testBoard = cloneBoard(board);
-        testBoard[candidate.row][candidate.col] = WHITE;
-        const isSafe = !findImmediateWinningMoves(BLACK, testBoard).length;
-        if (isSafe) {
-          blockers.add(`${candidate.row},${candidate.col}`);
-        }
-      }
-    }
-  }
-
-  let bestMove = null;
-  let bestValue = -Infinity;
-
-  for (const move of getAvailableMoves(board)) {
-    const key = `${move.row},${move.col}`;
-    if (!blockers.has(key)) continue;
-
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = WHITE;
-    const value = evaluateBoard(nextBoard, WHITE) - evaluateBoard(board, WHITE);
-    if (value > bestValue) {
-      bestValue = value;
-      bestMove = move;
-    }
-  }
-
-  return bestMove;
-}
-
 function getBestAIMove() {
   const availableMoves = getAvailableMoves();
   if (availableMoves.length === 0) return null;
 
-  const immediateWin = findImmediateWinningMoves(WHITE)[0];
+  const immediateWin = findImmediateWinMove(WHITE);
   if (immediateWin) return immediateWin;
-
-  const defenseOverride = findBestMoveForDefense();
-  if (defenseOverride) return defenseOverride;
 
   const openThree = findOpenThreeCreateMove(WHITE);
   if (openThree) return openThree;
 
-  const blockEnemyWin = findImmediateWinningMoves(BLACK)[0];
+  const blockEnemyWin = findImmediateWinMove(BLACK);
   if (blockEnemyWin) return blockEnemyWin;
 
   const blockDanger = findImmediateThreatMove(BLACK);
@@ -801,7 +640,7 @@ function getBestAIMove() {
   const enemyThreat = findMajorThreatMove(BLACK);
   if (enemyThreat) return enemyThreat;
 
-  const orderedMoves = orderMoves(getCandidateMoves(state.board), state.board).slice(0, 12);
+  const orderedMoves = orderMoves(availableMoves, state.board).slice(0, 12);
 
   let bestMove = null;
   let bestScore = -Infinity;
@@ -828,6 +667,14 @@ function makeAIMove() {
   const bestMove = getBestAIMove();
   if (!bestMove) return;
 
+  if (!isValidMove(bestMove.row, bestMove.col)) {
+    console.warn('AI invalid move attempted:', bestMove);
+    state.aiThinking = false;
+    clearAiTimer();
+    render();
+    return;
+  }
+
   state.history.push(createSnapshot());
   state.board[bestMove.row][bestMove.col] = WHITE;
   state.lastMove = { row: bestMove.row, col: bestMove.col };
@@ -845,12 +692,13 @@ function makeAIMove() {
   }
 
   state.aiThinking = false;
+  clearAiTimer();
   render();
 }
 
 function handleMove(row, col) {
   if (state.winner) return;
-  if (state.board[row][col] !== EMPTY) return;
+  if (!isValidMove(row, col)) return;
   if (state.aiThinking) return;
   if (isBoardFull()) return;
 
@@ -878,7 +726,8 @@ function handleMove(row, col) {
 
   if (state.mode === 'ai' && state.currentPlayer === WHITE && !state.winner) {
     state.aiThinking = true;
-    setTimeout(() => {
+    clearAiTimer();
+    aiTimerId = setTimeout(() => {
       makeAIMove();
     }, getDifficultyDelay());
   }
@@ -905,6 +754,7 @@ function updateRoundResult(winner) {
 }
 
 function resetGame() {
+  clearAiTimer();
   state.board = createEmptyBoard();
   state.currentPlayer = BLACK;
   state.winner = null;
@@ -921,6 +771,7 @@ function resetGame() {
 }
 
 function undoMove() {
+  clearAiTimer();
   if (state.history.length === 0) return;
 
   const previous = state.history.pop();
