@@ -562,6 +562,35 @@ function findBestOffenseMove(player, board = state.board) {
   return null;
 }
 
+function findOpenThreeCreateMove(player, board = state.board) {
+  const availableMoves = getAvailableMoves(board);
+  let bestMove = null;
+  let bestScore = -Infinity;
+
+  for (const move of availableMoves) {
+    const nextBoard = cloneBoard(board);
+    nextBoard[move.row][move.col] = player;
+
+    const summary = getPatternSummary(nextBoard, move.row, move.col, player);
+    const score =
+      summary.openFour * 300000 +
+      summary.four * 200000 +
+      summary.openThree * 120000 +
+      summary.three * 50000;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+
+  if (bestMove && bestScore >= 120000) {
+    return bestMove;
+  }
+
+  return null;
+}
+
 function findImmediateThreatMove(player, board = state.board) {
   const availableMoves = getAvailableMoves(board);
   let bestMove = null;
@@ -599,19 +628,17 @@ function getBestAIMove() {
   const availableMoves = getAvailableMoves();
   if (availableMoves.length === 0) return null;
 
-  const currentDepth = Math.min(AI_SEARCH_DEPTH, 6);
-
-  let bestMove = null;
-  let bestScore = -Infinity;
-
   const immediateWin = findImmediateWinMove(WHITE);
   if (immediateWin) return immediateWin;
 
-  const blockMove = findImmediateWinMove(BLACK);
-  if (blockMove) return blockMove;
+  const openThree = findOpenThreeCreateMove(WHITE);
+  if (openThree) return openThree;
 
-  const dangerousThreat = findImmediateThreatMove(BLACK);
-  if (dangerousThreat) return dangerousThreat;
+  const blockEnemyWin = findImmediateWinMove(BLACK);
+  if (blockEnemyWin) return blockEnemyWin;
+
+  const blockDanger = findImmediateThreatMove(BLACK);
+  if (blockDanger) return blockDanger;
 
   const strongOffense = findBestOffenseMove(WHITE);
   if (strongOffense) return strongOffense;
@@ -621,17 +648,15 @@ function getBestAIMove() {
 
   const orderedMoves = orderMoves(availableMoves, state.board).slice(0, 12);
 
+  let bestMove = null;
+  let bestScore = -Infinity;
+
   for (const move of orderedMoves) {
     const nextBoard = cloneBoard(state.board);
     nextBoard[move.row][move.col] = WHITE;
 
-    const winImmediate = hasFiveInLine(move.row, move.col, WHITE, nextBoard);
-    if (winImmediate) {
-      return move;
-    }
-
     const patternWeight = getMoveUrgency(state.board, move.row, move.col, WHITE);
-    const score = minimax(nextBoard, currentDepth - 1, -Infinity, Infinity, false, BLACK) + patternWeight;
+    const score = minimax(nextBoard, AI_SEARCH_DEPTH - 1, -Infinity, Infinity, false, BLACK) + patternWeight;
 
     if (score > bestScore) {
       bestScore = score;
@@ -639,11 +664,7 @@ function getBestAIMove() {
     }
   }
 
-  if (bestMove) {
-    return bestMove;
-  }
-
-  return orderedMoves[0];
+  return bestMove || orderedMoves[0];
 }
 
 function makeAIMove() {
