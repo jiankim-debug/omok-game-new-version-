@@ -3,7 +3,7 @@ const EMPTY = 0;
 const BLACK = 1;
 const WHITE = 2;
 const AI_SEARCH_DEPTH = 4;
-const WIN_SCORE = 1000000;
+const WIN_SCORE = 1_000_000;
 
 const PLAYER_NAMES = {
   [BLACK]: '검은돌',
@@ -20,6 +20,7 @@ const state = {
   history: [],
   mode: 'friend',
   difficulty: 'hard',
+  ruleMode: 'free',
   aiThinking: false,
   scores: {
     black: 0,
@@ -31,8 +32,6 @@ const state = {
     white: [],
   },
 };
-
-let aiTimerId = null;
 
 const boardElement = document.getElementById('board');
 const turnIndicator = document.getElementById('turn-indicator');
@@ -49,6 +48,7 @@ const whiteScoreEl = document.getElementById('white-score');
 const drawScoreEl = document.getElementById('draw-score');
 const difficultyButtons = document.querySelectorAll('.difficulty-btn');
 const modeButtons = document.querySelectorAll('.mode-btn');
+const ruleButtons = document.querySelectorAll('.rule-btn');
 
 function createEmptyBoard() {
   return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
@@ -68,28 +68,12 @@ function createSnapshot() {
     lastMove: state.lastMove ? { ...state.lastMove } : null,
     mode: state.mode,
     difficulty: state.difficulty,
+    ruleMode: state.ruleMode,
     patternMemory: {
       black: [...state.patternMemory.black],
       white: [...state.patternMemory.white],
     },
   };
-}
-
-function clearAiTimer() {
-  if (aiTimerId) {
-    clearTimeout(aiTimerId);
-    aiTimerId = null;
-  }
-}
-
-function isValidMove(row, col, board = state.board) {
-  return (
-    row >= 0 &&
-    row < BOARD_SIZE &&
-    col >= 0 &&
-    col < BOARD_SIZE &&
-    board[row][col] === EMPTY
-  );
 }
 
 function buildBoard() {
@@ -173,43 +157,8 @@ function render() {
   updateStatus();
 }
 
-function countDirection(row, col, deltaRow, deltaCol, player, board = state.board) {
-  let count = 0;
-  let nextRow = row + deltaRow;
-  let nextCol = col + deltaCol;
-
-  while (
-    nextRow >= 0 &&
-    nextRow < BOARD_SIZE &&
-    nextCol >= 0 &&
-    nextCol < BOARD_SIZE &&
-    board[nextRow][nextCol] === player
-  ) {
-    count += 1;
-    nextRow += deltaRow;
-    nextCol += deltaCol;
-  }
-
-  return count;
-}
-
-function hasFiveInLine(row, col, player, board = state.board) {
-  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-
-  return directions.some(([deltaRow, deltaCol]) => {
-    const forward = countDirection(row, col, deltaRow, deltaCol, player, board);
-    const backward = countDirection(row, col, -deltaRow, -deltaCol, player, board);
-    return forward + backward + 1 >= 5;
-  });
-}
-
-function isBoardFull() {
-  return state.moves.length >= BOARD_SIZE * BOARD_SIZE;
-}
-
 function getAvailableMoves(board = state.board) {
   const moves = [];
-
   for (let row = 0; row < BOARD_SIZE; row += 1) {
     for (let col = 0; col < BOARD_SIZE; col += 1) {
       if (board[row][col] === EMPTY) {
@@ -217,220 +166,46 @@ function getAvailableMoves(board = state.board) {
       }
     }
   }
-
   return moves;
 }
 
-function findImmediateWinMove(player, board = state.board) {
-  const availableMoves = getAvailableMoves(board);
-
-  for (const move of availableMoves) {
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = player;
-
-    if (hasFiveInLine(move.row, move.col, player, nextBoard)) {
-      return move;
-    }
-  }
-
-  return null;
+function boardIsFull(board = state.board) {
+  return getAvailableMoves(board).length === 0;
 }
 
-function evaluateLinePattern(board, row, col, dr, dc, player) {
-  let count = 1;
-  let r = row + dr;
-  let c = col + dc;
-
-  while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
-    count += 1;
-    r += dr;
-    c += dc;
-  }
-
-  r = row - dr;
-  c = col - dc;
-  while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
-    count += 1;
-    r -= dr;
-    c -= dc;
-  }
-
-  return count;
-}
-
-function getPatternScore(board, row, col, player) {
-  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-
-  let score = 0;
-
-  for (const [dr, dc] of directions) {
-    const length = evaluateLinePattern(board, row, col, dr, dc, player);
-
-    if (length >= 5) return WIN_SCORE;
-    if (length === 4) score += 5000;
-    else if (length === 3) score += 850;
-    else if (length === 2) score += 150;
-    else if (length === 1) score += 10;
-  }
-
-  return score;
+function findLocalWinner(board = state.board) {
+  return window.OmokLogic.findWinner(board);
 }
 
 function evaluateBoard(board, perspective) {
   let score = 0;
-
   for (let row = 0; row < BOARD_SIZE; row += 1) {
     for (let col = 0; col < BOARD_SIZE; col += 1) {
       const value = board[row][col];
       if (value === EMPTY) continue;
 
       const centerDistance = Math.abs(row - 7) + Math.abs(col - 7);
-      const centerBias = 25 - centerDistance;
-      if (centerBias > 0) {
-        score += value === perspective ? centerBias : -centerBias * 0.6;
-      }
+      const centerBias = Math.max(0, 24 - centerDistance);
+      score += value === perspective ? centerBias * 2 : -centerBias;
 
+      const patternSummary = window.OmokLogic.getPatternSummary(board, row, col, value);
       score += value === perspective
-        ? getPatternScore(board, row, col, perspective)
-        : -getPatternScore(board, row, col, perspective === WHITE ? BLACK : WHITE) * 0.9;
+        ? patternSummary.openFour * 1000 + patternSummary.closedFour * 300 + patternSummary.openThree * 150 + patternSummary.closedThree * 30 + patternSummary.openTwo * 10
+        : -(patternSummary.openFour * 1200 + patternSummary.closedFour * 350 + patternSummary.openThree * 180 + patternSummary.closedThree * 40 + patternSummary.openTwo * 12);
     }
   }
-
   return score;
-}
-
-function getPatternSummary(board, row, col, player) {
-  const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-
-  const summary = {
-    three: 0,
-    four: 0,
-    openThree: 0,
-    openFour: 0,
-    five: 0,
-  };
-
-  for (const [dr, dc] of directions) {
-    const line = [];
-
-    for (let offset = -4; offset <= 4; offset += 1) {
-      const nextRow = row + dr * offset;
-      const nextCol = col + dc * offset;
-      if (nextRow < 0 || nextRow >= BOARD_SIZE || nextCol < 0 || nextCol >= BOARD_SIZE) {
-        line.push(EMPTY);
-        continue;
-      }
-      line.push(board[nextRow][nextCol]);
-    }
-
-    for (let start = 0; start <= line.length - 5; start += 1) {
-      const segment = line.slice(start, start + 5);
-      const playerCount = segment.filter((value) => value === player).length;
-      const emptyCount = segment.filter((value) => value === EMPTY).length;
-
-      if (playerCount === 5) {
-        summary.five += 1;
-        continue;
-      }
-
-      if (playerCount === 4 && emptyCount === 1) {
-        const left = start - 1 >= 0 ? line[start - 1] : EMPTY;
-        const right = start + 5 < line.length ? line[start + 5] : EMPTY;
-        if (left === EMPTY && right === EMPTY) {
-          summary.openFour += 1;
-        } else {
-          summary.four += 1;
-        }
-        continue;
-      }
-
-      if (playerCount === 3 && emptyCount === 2) {
-        const left = start - 1 >= 0 ? line[start - 1] : EMPTY;
-        const right = start + 5 < line.length ? line[start + 5] : EMPTY;
-        if (left === EMPTY && right === EMPTY) {
-          summary.openThree += 1;
-        } else {
-          summary.three += 1;
-        }
-      }
-    }
-  }
-
-  return summary;
-}
-
-function getMoveUrgency(board, row, col, player) {
-  const nextBoard = cloneBoard(board);
-  nextBoard[row][col] = player;
-
-  if (hasFiveInLine(row, col, player, nextBoard)) {
-    return WIN_SCORE;
-  }
-
-  const summary = getPatternSummary(nextBoard, row, col, player);
-  let score = 0;
-  score += summary.openFour * 120000;
-  score += summary.four * 70000;
-  score += summary.openThree * 15000;
-  score += summary.three * 7000;
-  score += getLearningBias(row, col, player);
-
-  const neighboringThreats = [[1, 0], [0, 1], [1, 1], [1, -1]].reduce((total, [dr, dc]) => {
-    const r1 = row + dr;
-    const c1 = col + dc;
-    const r2 = row - dr;
-    const c2 = col - dc;
-    let count = 0;
-
-    if (r1 >= 0 && r1 < BOARD_SIZE && c1 >= 0 && c1 < BOARD_SIZE && nextBoard[r1][c1] === player) count += 1;
-    if (r2 >= 0 && r2 < BOARD_SIZE && c2 >= 0 && c2 < BOARD_SIZE && nextBoard[r2][c2] === player) count += 1;
-
-    return total + count * 2000;
-  }, 0);
-
-  score += neighboringThreats;
-  return score;
-}
-
-function getDifficultyDelay() {
-  const map = {
-    easy: 300,
-    normal: 500,
-    hard: 650,
-  };
-  return map[state.difficulty] || 500;
-}
-
-function getCenterDistance(row, col) {
-  return Math.abs(row - 7) + Math.abs(col - 7);
-}
-
-function orderMoves(moves, board) {
-  const sorted = moves.map((move) => {
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = WHITE;
-    const score = getPatternScore(nextBoard, move.row, move.col, WHITE);
-    return { ...move, score };
-  });
-
-  return sorted.sort((a, b) => {
-    if (b.score !== a.score) {
-      return b.score - a.score;
-    }
-
-    return getCenterDistance(a.row, a.col) - getCenterDistance(b.row, b.col);
-  });
 }
 
 function minimax(board, depth, alpha, beta, maximizing, currentPlayer) {
-  const winner = findWinner(board);
+  const winner = findLocalWinner(board);
   if (winner === WHITE) return WIN_SCORE - (AI_SEARCH_DEPTH - depth);
   if (winner === BLACK) return -WIN_SCORE + (AI_SEARCH_DEPTH - depth);
-  if (depth === 0 || getAvailableMoves(board).length === 0) {
+  if (depth === 0 || boardIsFull(board)) {
     return evaluateBoard(board, WHITE);
   }
 
-  const moves = orderMoves(getAvailableMoves(board), board).slice(0, 12);
+  const moves = window.OmokLogic.getAvailableMoves(board).slice(0, 12);
 
   if (maximizing) {
     let bestScore = -Infinity;
@@ -457,223 +232,47 @@ function minimax(board, depth, alpha, beta, maximizing, currentPlayer) {
   return bestScore;
 }
 
-function findWinner(board = state.board) {
-  for (let row = 0; row < BOARD_SIZE; row += 1) {
-    for (let col = 0; col < BOARD_SIZE; col += 1) {
-      const value = board[row][col];
-      if (value === EMPTY) continue;
+function orderMoves(moves, board) {
+  return moves
+    .map((move) => ({ ...move, score: evaluateBoard(cloneBoard(board).map((row) => [...row])), row: move.row, col: move.col }))
+    .sort((a, b) => b.score - a.score);
+}
 
-      const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
-
-      for (const [dr, dc] of directions) {
-        let count = 1;
-        let r = row + dr;
-        let c = col + dc;
-
-        while (
-          r >= 0 && r < BOARD_SIZE &&
-          c >= 0 && c < BOARD_SIZE &&
-          board[r][c] === value
-        ) {
-          count += 1;
-          r += dr;
-          c += dc;
-        }
-
-        if (count >= 5) {
-          return value;
-        }
-      }
-    }
-  }
-
-  return null;
+function getDifficultyDelay() {
+  const map = {
+    easy: 350,
+    normal: 550,
+    hard: 700,
+  };
+  return map[state.difficulty] || 550;
 }
 
 function recordMoveMemory(player, row, col) {
   const key = player === BLACK ? 'black' : 'white';
   state.patternMemory[key].push({ row, col });
-
   if (state.patternMemory[key].length > 12) {
     state.patternMemory[key].shift();
   }
 }
 
-function getLearningBias(row, col, player) {
-  const key = player === BLACK ? 'white' : 'black';
-  const memory = state.patternMemory[key];
-  if (memory.length === 0) return 0;
-
-  let score = 0;
-  for (const move of memory) {
-    const distance = Math.abs(move.row - row) + Math.abs(move.col - col);
-    if (distance <= 2) {
-      score += 200 - distance * 45;
-    }
-  }
-
-  return score;
+function isMoveAllowed(row, col, player = state.currentPlayer) {
+  return window.OmokLogic.isMoveLegal(state.board, row, col, player, state.ruleMode);
 }
 
-function findMajorThreatMove(player, board = state.board) {
-  const availableMoves = getAvailableMoves(board);
-  let bestMove = null;
-  let bestScore = -Infinity;
-
-  for (const move of availableMoves) {
-    const score = getMoveUrgency(board, move.row, move.col, player);
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-
-  if (bestMove && bestScore >= 15000) {
-    return bestMove;
-  }
-
-  return null;
+function findImmediateWinMove(player, board = state.board) {
+  return window.OmokLogic.findImmediateWinMove(board, player);
 }
 
-function findBestOffenseMove(player, board = state.board) {
-  const availableMoves = getAvailableMoves(board);
-  let bestMove = null;
-  let bestScore = -Infinity;
-
-  for (const move of availableMoves) {
-    const score = getMoveUrgency(board, move.row, move.col, player);
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-
-  if (bestMove && bestScore >= 7000) {
-    return bestMove;
-  }
-
-  return null;
-}
-
-function findOpenThreeCreateMove(player, board = state.board) {
-  const availableMoves = getAvailableMoves(board);
-  let bestMove = null;
-  let bestScore = -Infinity;
-
-  for (const move of availableMoves) {
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = player;
-
-    const summary = getPatternSummary(nextBoard, move.row, move.col, player);
-    const score =
-      summary.openFour * 300000 +
-      summary.four * 200000 +
-      summary.openThree * 120000 +
-      summary.three * 50000;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-
-  if (bestMove && bestScore >= 120000) {
-    return bestMove;
-  }
-
-  return null;
-}
-
-function findImmediateThreatMove(player, board = state.board) {
-  const availableMoves = getAvailableMoves(board);
-  let bestMove = null;
-  let bestScore = -Infinity;
-
-  for (const move of availableMoves) {
-    const nextBoard = cloneBoard(board);
-    nextBoard[move.row][move.col] = player;
-
-    if (hasFiveInLine(move.row, move.col, player, nextBoard)) {
-      return move;
-    }
-
-    const summary = getPatternSummary(nextBoard, move.row, move.col, player);
-    const score =
-      summary.openFour * 200000 +
-      summary.four * 90000 +
-      summary.openThree * 20000 +
-      summary.three * 8000;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-
-  if (bestMove && bestScore >= 15000) {
-    return bestMove;
-  }
-
-  return null;
-}
-
-function getBestAIMove() {
-  const availableMoves = getAvailableMoves();
-  if (availableMoves.length === 0) return null;
-
-  const immediateWin = findImmediateWinMove(WHITE);
-  if (immediateWin) return immediateWin;
-
-  const openThree = findOpenThreeCreateMove(WHITE);
-  if (openThree) return openThree;
-
-  const blockEnemyWin = findImmediateWinMove(BLACK);
-  if (blockEnemyWin) return blockEnemyWin;
-
-  const blockDanger = findImmediateThreatMove(BLACK);
-  if (blockDanger) return blockDanger;
-
-  const strongOffense = findBestOffenseMove(WHITE);
-  if (strongOffense) return strongOffense;
-
-  const enemyThreat = findMajorThreatMove(BLACK);
-  if (enemyThreat) return enemyThreat;
-
-  const orderedMoves = orderMoves(availableMoves, state.board).slice(0, 12);
-
-  let bestMove = null;
-  let bestScore = -Infinity;
-
-  for (const move of orderedMoves) {
-    const nextBoard = cloneBoard(state.board);
-    nextBoard[move.row][move.col] = WHITE;
-
-    const patternWeight = getMoveUrgency(state.board, move.row, move.col, WHITE);
-    const score = minimax(nextBoard, AI_SEARCH_DEPTH - 1, -Infinity, Infinity, false, BLACK) + patternWeight;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMove = move;
-    }
-  }
-
-  return bestMove || orderedMoves[0];
+function findBestAIMove() {
+  const best = window.OmokLogic.getBestAIMove(state.board, WHITE, state.difficulty, state.ruleMode);
+  return best;
 }
 
 function makeAIMove() {
   if (!state.aiThinking || state.winner) return;
 
-  const bestMove = getBestAIMove();
+  const bestMove = findBestAIMove();
   if (!bestMove) return;
-
-  if (!isValidMove(bestMove.row, bestMove.col)) {
-    console.warn('AI invalid move attempted:', bestMove);
-    state.aiThinking = false;
-    clearAiTimer();
-    render();
-    return;
-  }
 
   state.history.push(createSnapshot());
   state.board[bestMove.row][bestMove.col] = WHITE;
@@ -681,7 +280,7 @@ function makeAIMove() {
   state.moves.push({ row: bestMove.row, col: bestMove.col, player: WHITE });
   recordMoveMemory(WHITE, bestMove.row, bestMove.col);
 
-  if (hasFiveInLine(bestMove.row, bestMove.col, WHITE)) {
+  if (window.OmokLogic.hasFiveInLine(state.board, bestMove.row, bestMove.col, WHITE)) {
     state.winner = WHITE;
     state.status = 'AI 승리';
   } else if (state.moves.length === BOARD_SIZE * BOARD_SIZE) {
@@ -692,17 +291,19 @@ function makeAIMove() {
   }
 
   state.aiThinking = false;
-  clearAiTimer();
   render();
 }
 
 function handleMove(row, col) {
   if (state.winner) return;
-  if (!isValidMove(row, col)) return;
   if (state.aiThinking) return;
-  if (isBoardFull()) return;
+  if (state.board[row][col] !== EMPTY) return;
+  if (boardIsFull()) return;
+  if (state.mode === 'ai' && state.currentPlayer === WHITE) return;
 
-  if (state.mode === 'ai' && state.currentPlayer === WHITE) {
+  if (!isMoveAllowed(row, col, state.currentPlayer)) {
+    state.status = state.ruleMode === 'renju' ? '금수 위치입니다. 다른 곳을 선택해 주세요.' : '이미 사용된 위치입니다.';
+    render();
     return;
   }
 
@@ -712,7 +313,7 @@ function handleMove(row, col) {
   state.moves.push({ row, col, player: state.currentPlayer });
   recordMoveMemory(state.currentPlayer, row, col);
 
-  if (hasFiveInLine(row, col, state.currentPlayer)) {
+  if (window.OmokLogic.hasFiveInLine(state.board, row, col, state.currentPlayer)) {
     state.winner = state.currentPlayer;
     state.status = `${PLAYER_NAMES[state.currentPlayer]} 승리`;
   } else if (state.moves.length === BOARD_SIZE * BOARD_SIZE) {
@@ -726,8 +327,7 @@ function handleMove(row, col) {
 
   if (state.mode === 'ai' && state.currentPlayer === WHITE && !state.winner) {
     state.aiThinking = true;
-    clearAiTimer();
-    aiTimerId = setTimeout(() => {
+    setTimeout(() => {
       makeAIMove();
     }, getDifficultyDelay());
   }
@@ -754,7 +354,6 @@ function updateRoundResult(winner) {
 }
 
 function resetGame() {
-  clearAiTimer();
   state.board = createEmptyBoard();
   state.currentPlayer = BLACK;
   state.winner = null;
@@ -771,7 +370,6 @@ function resetGame() {
 }
 
 function undoMove() {
-  clearAiTimer();
   if (state.history.length === 0) return;
 
   const previous = state.history.pop();
@@ -781,6 +379,7 @@ function undoMove() {
   state.status = previous.status;
   state.moves = previous.moves;
   state.lastMove = previous.lastMove;
+  state.ruleMode = previous.ruleMode;
   state.aiThinking = false;
   state.patternMemory = previous.patternMemory;
 
@@ -816,6 +415,15 @@ function selectDifficulty(level) {
   });
 }
 
+function selectRuleMode(level) {
+  state.ruleMode = level;
+  ruleButtons.forEach((button) => {
+    const isActive = button.dataset.rule === level;
+    button.classList.toggle('active', isActive);
+  });
+  resetGame();
+}
+
 function bindEvents() {
   modeButtons.forEach((button) => {
     button.addEventListener('click', () => selectMode(button.dataset.mode));
@@ -823,6 +431,10 @@ function bindEvents() {
 
   difficultyButtons.forEach((button) => {
     button.addEventListener('click', () => selectDifficulty(button.dataset.difficulty));
+  });
+
+  ruleButtons.forEach((button) => {
+    button.addEventListener('click', () => selectRuleMode(button.dataset.rule));
   });
 
   modeSelectButton.addEventListener('click', () => {
