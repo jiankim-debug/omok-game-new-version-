@@ -370,6 +370,26 @@ function getMoveUrgency(board, row, col, player) {
   score += summary.openThree * 15000;
   score += summary.three * 7000;
   score += getLearningBias(row, col, player);
+
+  const neighboringThreats = [
+    [1, 0],
+    [0, 1],
+    [1, 1],
+    [1, -1],
+  ].reduce((total, [dr, dc]) => {
+    const r1 = row + dr;
+    const c1 = col + dc;
+    const r2 = row - dr;
+    const c2 = col - dc;
+    let count = 0;
+
+    if (r1 >= 0 && r1 < BOARD_SIZE && c1 >= 0 && c1 < BOARD_SIZE && nextBoard[r1][c1] === player) count += 1;
+    if (r2 >= 0 && r2 < BOARD_SIZE && c2 >= 0 && c2 < BOARD_SIZE && nextBoard[r2][c2] === player) count += 1;
+
+    return total + count * 2000;
+  }, 0);
+
+  score += neighboringThreats;
   return score;
 }
 
@@ -521,6 +541,27 @@ function findMajorThreatMove(player, board = state.board) {
   return null;
 }
 
+function findBestOffenseMove(player, board = state.board) {
+  const availableMoves = getAvailableMoves(board);
+  let bestMove = null;
+  let bestScore = -Infinity;
+
+  for (const move of availableMoves) {
+    const score = getMoveUrgency(board, move.row, move.col, player);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMove = move;
+    }
+  }
+
+  if (bestMove && bestScore >= 7000) {
+    return bestMove;
+  }
+
+  return null;
+}
+
 function getBestAIMove() {
   const availableMoves = getAvailableMoves();
   if (availableMoves.length === 0) return null;
@@ -536,8 +577,11 @@ function getBestAIMove() {
   const blockMove = findImmediateWinMove(BLACK);
   if (blockMove) return blockMove;
 
-  const strongestThreat = findMajorThreatMove(BLACK);
-  if (strongestThreat) return strongestThreat;
+  const strongOffense = findBestOffenseMove(WHITE);
+  if (strongOffense) return strongOffense;
+
+  const enemyThreat = findMajorThreatMove(BLACK);
+  if (enemyThreat) return enemyThreat;
 
   const orderedMoves = orderMoves(availableMoves, state.board).slice(0, 12);
 
